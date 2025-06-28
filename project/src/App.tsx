@@ -4,6 +4,8 @@ import { Toaster } from 'react-hot-toast';
 import Sidebar from './components/Layout/Sidebar';
 import Header from './components/Layout/Header';
 import Notifications from './components/Layout/Notifications';
+import BuyCreditsButton from './components/Pricing/BuyCreditsButton';
+import PricingModal from './components/Pricing/PricingModal';
 import Dashboard from './pages/Dashboard';
 import Studio from './pages/Studio';
 import Gallery from './pages/Gallery';
@@ -27,6 +29,7 @@ function App() {
       timestamp: '1 minute ago',
     },
   ]);
+  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
 
   useEffect(() => {
     initialize();
@@ -45,6 +48,10 @@ function App() {
 
   const removeNotification = (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const handleBuyCreditsClick = () => {
+    setIsPricingModalOpen(true);
   };
 
   if (isLoading) {
@@ -102,6 +109,15 @@ function App() {
             </Routes>
           </main>
         </div>
+
+        {/* Buy Credits Button - Fixed Position */}
+        <BuyCreditsButton onClick={handleBuyCreditsClick} />
+
+        {/* Pricing Modal */}
+        <PricingModal 
+          isOpen={isPricingModalOpen} 
+          onClose={() => setIsPricingModalOpen(false)} 
+        />
 
         {/* Notifications */}
         <Notifications 

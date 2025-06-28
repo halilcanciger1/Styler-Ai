@@ -53,7 +53,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
 
       if (error) throw error;
 
-      // Update local state
+      // Update local state immediately
       set(state => ({
         generations: [generation, ...state.generations]
       }));
@@ -162,7 +162,10 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
 
         switch (eventType) {
           case 'INSERT':
-            updatedGenerations = [newRecord, ...updatedGenerations];
+            // Only add if not already in the list
+            if (!updatedGenerations.find(g => g.id === newRecord.id)) {
+              updatedGenerations = [newRecord, ...updatedGenerations];
+            }
             break;
           case 'UPDATE':
             updatedGenerations = updatedGenerations.map(gen =>

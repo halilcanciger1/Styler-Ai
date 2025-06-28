@@ -84,18 +84,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (error) throw error;
 
       if (data.user) {
-        // Create profile
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.user.id,
-            email: data.user.email!,
-            full_name: name,
-          });
-
-        if (profileError) throw profileError;
-
         set({ user: data.user, isAuthenticated: true });
+        
+        // Wait a moment for the trigger to create the profile
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Fetch the profile that should have been created by the trigger
         await get().fetchProfile();
       }
     } catch (error) {
@@ -125,10 +119,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
-      set({ profile: data });
+      
+      if (data) {
+        set({ profile: data });
+      } else {
+        // If no profile exists, the trigger might not have fired yet
+        // Wait a bit and try again
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const { data: retryData, error: retryError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
+          
+        if (retryError) throw retryError;
+        if (retryData) {
+          set({ profile: retryData });
+        }
+      }
     } catch (error) {
       console.error('Error fetching profile:', error);
     }

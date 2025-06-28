@@ -26,7 +26,7 @@ const navigation = [
 ];
 
 const Sidebar: React.FC = () => {
-  const { user, logout } = useAuthStore();
+  const { user, profile, logout } = useAuthStore();
 
   return (
     <div className="flex flex-col h-full bg-stone-100 border-r border-stone-200">
@@ -42,7 +42,9 @@ const Sidebar: React.FC = () => {
 
       {/* Current Plan */}
       <div className="p-4 border-b border-stone-200">
-        <div className="text-xs text-stone-600 mb-1">Current plan: FREE</div>
+        <div className="text-xs text-stone-600 mb-1">
+          Current plan: {profile?.subscription_tier?.toUpperCase() || 'FREE'}
+        </div>
         <NavLink
           to="/subscription"
           className="w-full bg-yellow-400 hover:bg-yellow-500 text-stone-800 px-3 py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-colors"
@@ -78,20 +80,20 @@ const Sidebar: React.FC = () => {
       </nav>
 
       {/* User Section */}
-      {user && (
+      {user && profile && (
         <div className="p-4 border-t border-stone-200">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
               <span className="text-white font-medium text-sm">
-                {user.name.charAt(0).toUpperCase()}
+                {profile.full_name?.charAt(0).toUpperCase() || profile.email?.charAt(0).toUpperCase() || 'U'}
               </span>
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-stone-900 truncate">
-                {user.name}
+                {profile.full_name || 'User'}
               </div>
               <div className="text-xs text-stone-500 truncate">
-                {user.email}
+                {profile.email}
               </div>
             </div>
           </div>

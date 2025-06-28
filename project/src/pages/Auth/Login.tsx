@@ -15,8 +15,15 @@ const Login: React.FC = () => {
     try {
       await login(email, password);
       toast.success('Welcome back!');
-    } catch (error) {
-      toast.error('Invalid credentials. Please try again.');
+    } catch (error: any) {
+      // Check if it's a Supabase auth error with email not confirmed
+      if (error?.message?.includes('Email not confirmed') || 
+          error?.code === 'email_not_confirmed' ||
+          (error?.body && JSON.parse(error.body)?.code === 'email_not_confirmed')) {
+        toast.error('Please check your email and click the confirmation link before signing in.');
+      } else {
+        toast.error('Invalid credentials. Please try again.');
+      }
     }
   };
 

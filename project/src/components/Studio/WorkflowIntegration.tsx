@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Pause, RotateCcw, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { Play, Pause, RotateCcw, AlertCircle, CheckCircle, Clock, ExternalLink } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import toast from 'react-hot-toast';
@@ -30,6 +30,13 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
   const [execution, setExecution] = useState<WorkflowExecution | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [progress, setProgress] = useState(0);
+
+  // n8n Configuration
+  const N8N_CONFIG = {
+    webhookUrl: 'https://your-n8n-instance.com/webhook/fashion-ai-trigger',
+    workflowId: 'Q0c9yGVeD1G8ZzsN',
+    apiKey: 'fa-Dy6SV0P0ZUSd-TijrFG5cmW5khB3TLrkmNVNk',
+  };
 
   useEffect(() => {
     if (generationId) {
@@ -75,10 +82,10 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
             if (newRecord.status === 'completed') {
               setIsExecuting(false);
               setProgress(100);
-              toast.success('Workflow completed successfully!');
+              toast.success('n8n workflow completed successfully!');
             } else if (newRecord.status === 'failed') {
               setIsExecuting(false);
-              toast.error('Workflow execution failed');
+              toast.error('n8n workflow execution failed');
             }
           }
         }
@@ -95,16 +102,31 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
     setProgress(0);
 
     try {
+      // Get generation data
+      const { data: generation, error: genError } = await supabase
+        .from('generations')
+        .select('*')
+        .eq('id', generationId)
+        .single();
+
+      if (genError) throw genError;
+
       // Create workflow execution record
       const { data: workflowExecution, error } = await supabase
         .from('workflow_executions')
         .insert({
           user_id: profile.id,
           generation_id: generationId,
-          workflow_id: 'Q0c9yGVeD1G8ZzsN', // From the n8n workflow
+          workflow_id: N8N_CONFIG.workflowId,
           status: 'running',
           input_data: {
             generation_id: generationId,
+            model_image: generation.model_image_url,
+            garment_image: generation.garment_image_url,
+            category: generation.category,
+            seed: generation.seed,
+            samples: generation.samples,
+            quality: generation.quality,
             timestamp: new Date().toISOString(),
           },
         })
@@ -114,7 +136,50 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
       if (error) throw error;
       setExecution(workflowExecution);
 
-      // Simulate progress updates
+      // Trigger n8n webhook
+      console.log('Triggering n8n webhook:', N8N_CONFIG.webhookUrl);
+      
+      const webhookResponse = await fetch(N8N_CONFIG.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${N8N_CONFIG.apiKey}`,
+        },
+        body: JSON.stringify({
+          generation_id: generationId,
+          user_id: profile.id,
+          model_image: generation.model_image_url,
+          garment_image: generation.garment_image_url,
+          category: generation.category,
+          seed: generation.seed,
+          samples: generation.samples,
+          quality: generation.quality,
+          webhook_trigger: true,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      if (!webhookResponse.ok) {
+        const errorText = await webhookResponse.text();
+        throw new Error(`Webhook failed: ${webhookResponse.status} - ${errorText}`);
+      }
+
+      const webhookResult = await webhookResponse.json();
+      console.log('Webhook triggered successfully:', webhookResult);
+
+      // Update execution with webhook response
+      await supabase
+        .from('workflow_executions')
+        .update({
+          execution_id: webhookResult.execution_id || 'webhook-triggered',
+          output_data: {
+            webhook_response: webhookResult,
+            triggered_at: new Date().toISOString(),
+          },
+        })
+        .eq('id', workflowExecution.id);
+
+      // Simulate progress updates while waiting for n8n to complete
       const progressInterval = setInterval(() => {
         setProgress(prev => {
           if (prev >= 90) {
@@ -125,35 +190,24 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
         });
       }, 1000);
 
-      // In a real implementation, you would trigger the n8n workflow here
-      // For now, we'll simulate the workflow execution
-      setTimeout(async () => {
-        clearInterval(progressInterval);
-        
-        // Update execution with completion
-        await supabase
-          .from('workflow_executions')
-          .update({
-            status: 'completed',
-            completed_at: new Date().toISOString(),
-            output_data: {
-              result_urls: [
-                'https://images.pexels.com/photos/1536619/pexels-photo-1536619.jpeg',
-                'https://images.pexels.com/photos/1536620/pexels-photo-1536620.jpeg',
-              ],
-              processing_time: 5000,
-            },
-          })
-          .eq('id', workflowExecution.id);
-
-        setProgress(100);
-        setIsExecuting(false);
-      }, 8000);
+      toast.success('n8n workflow triggered successfully!');
 
     } catch (error) {
       console.error('Error executing workflow:', error);
       setIsExecuting(false);
-      toast.error('Failed to execute workflow');
+      
+      if (execution) {
+        await supabase
+          .from('workflow_executions')
+          .update({
+            status: 'failed',
+            error_message: error instanceof Error ? error.message : 'Unknown error',
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', execution.id);
+      }
+      
+      toast.error(`Workflow execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -193,17 +247,17 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
   };
 
   const getStatusText = () => {
-    if (!execution) return 'Ready to execute';
+    if (!execution) return 'Ready to execute n8n workflow';
     
     switch (execution.status) {
       case 'completed':
-        return 'Workflow completed successfully';
+        return 'n8n workflow completed successfully';
       case 'failed':
-        return 'Workflow execution failed';
+        return 'n8n workflow execution failed';
       case 'running':
-        return 'Workflow is running...';
+        return 'n8n workflow is running...';
       case 'pending':
-        return 'Workflow is pending';
+        return 'n8n workflow is pending';
       default:
         return 'Unknown status';
     }
@@ -216,8 +270,18 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
       className="bg-white border border-stone-200 rounded-lg p-6"
     >
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-stone-900">Workflow Execution</h3>
-        {getStatusIcon()}
+        <h3 className="text-lg font-semibold text-stone-900">n8n Workflow Integration</h3>
+        <div className="flex items-center space-x-2">
+          {getStatusIcon()}
+          <a
+            href="https://your-n8n-instance.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-stone-400 hover:text-stone-600"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
+        </div>
       </div>
 
       <div className="space-y-4">
@@ -250,6 +314,12 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
               <span className="text-stone-600">Workflow ID:</span>
               <span className="text-stone-900 font-mono">{execution.workflow_id}</span>
             </div>
+            {execution.execution_id && (
+              <div className="flex justify-between text-sm">
+                <span className="text-stone-600">Execution ID:</span>
+                <span className="text-stone-900 font-mono">{execution.execution_id}</span>
+              </div>
+            )}
             {execution.started_at && (
               <div className="flex justify-between text-sm">
                 <span className="text-stone-600">Started:</span>
@@ -269,6 +339,19 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
           </div>
         )}
 
+        {/* Configuration Display */}
+        <div className="bg-blue-50 rounded-lg p-3">
+          <h4 className="text-sm font-medium text-blue-900 mb-2">n8n Configuration</h4>
+          <div className="text-xs text-blue-800 space-y-1">
+            <div>Webhook: {N8N_CONFIG.webhookUrl}</div>
+            <div>Workflow: {N8N_CONFIG.workflowId}</div>
+            <div>API Key: {N8N_CONFIG.apiKey.substring(0, 15)}...</div>
+          </div>
+          <div className="text-xs text-orange-600 mt-2">
+            ⚠️ Update webhook URL to your n8n instance
+          </div>
+        </div>
+
         {/* Actions */}
         <div className="flex space-x-2">
           {!execution || execution.status === 'pending' ? (
@@ -278,7 +361,7 @@ const WorkflowIntegration: React.FC<WorkflowIntegrationProps> = ({
               className="flex-1 bg-yellow-400 hover:bg-yellow-500 disabled:bg-yellow-300 text-stone-800 px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center"
             >
               <Play className="w-4 h-4 mr-2" />
-              {isExecuting ? 'Executing...' : 'Execute Workflow'}
+              {isExecuting ? 'Executing...' : 'Execute n8n Workflow'}
             </button>
           ) : execution.status === 'failed' ? (
             <button

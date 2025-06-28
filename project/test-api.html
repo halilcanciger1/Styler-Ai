@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fashion AI API Test Suite</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-controls {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 10px;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .log-container {
+            background: #1e1e1e;
+            color: #fff;
+            padding: 20px;
+            border-radius: 6px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        .log-info { color: #fff; }
+        .log-success { color: #4ade80; }
+        .log-warning { color: #fbbf24; }
+        .log-error { color: #f87171; }
+        .results-container {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .test-status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status-pass { background: #d1fae5; color: #065f46; }
+        .status-fail { background: #fee2e2; color: #991b1b; }
+        .status-warning { background: #fef3c7; color: #92400e; }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #059669);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .api-config {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .config-item {
+            margin-bottom: 10px;
+        }
+        .config-label {
+            font-weight: bold;
+            color: #374151;
+            margin-right: 10px;
+        }
+        .config-value {
+            font-family: monospace;
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Fashion AI API Test Suite</h1>
+        
+        <div class="api-config">
+            <h3>API Configuration</h3>
+            <div class="config-item">
+                <span class="config-label">Base URL:</span>
+                <span class="config-value">https://api.fashn.ai/v1</span>
+            </div>
+            <div class="config-item">
+                <span class="config-label">API Key:</span>
+                <span class="config-value">fa-Dy6SV0P0ZUSd-TijrFG5cmW5khB3TLrkmNVNk</span>
+            </div>
+            <div class="config-item">
+                <span class="config-label">Test Workflow:</span>
+                <span class="config-value">POST /run → Poll /status → Validate Response</span>
+            </div>
+        </div>
+
+        <div class="test-controls">
+            <button id="runTest" onclick="runTest()">🚀 Run Full Test Suite</button>
+            <button id="clearLogs" onclick="clearLogs()">🗑️ Clear Logs</button>
+            <button id="exportResults" onclick="exportResults()" disabled>📊 Export Results</button>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <div class="log-container" id="logContainer">
+            <div class="log-entry log-info">Ready to run API tests...</div>
+        </div>
+
+        <div class="results-container" id="resultsContainer" style="display: none;">
+            <h3>Test Results Summary</h3>
+            <div id="resultsSummary"></div>
+        </div>
+    </div>
+
+    <script src="test-api.js"></script>
+    <script>
+        let currentTester = null;
+        let testResults = null;
+
+        function updateProgress(percentage) {
+            document.getElementById('progressFill').style.width = percentage + '%';
+        }
+
+        function addLogEntry(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logContainer').innerHTML = 
+                '<div class="log-entry log-info">Logs cleared...</div>';
+            document.getElementById('resultsContainer').style.display = 'none';
+            updateProgress(0);
+        }
+
+        function setButtonState(running) {
+            document.getElementById('runTest').disabled = running;
+            document.getElementById('runTest').textContent = running ? '⏳ Running Tests...' : '🚀 Run Full Test Suite';
+        }
+
+        async function runTest() {
+            setButtonState(true);
+            clearLogs();
+            
+            addLogEntry('Initializing API test suite...', 'info');
+            updateProgress(5);
+
+            // Create custom tester with UI integration
+            currentTester = new APITester();
+            
+            // Override log method to update UI
+            const originalLog = currentTester.log;
+            currentTester.log = function(message, type = 'info') {
+                originalLog.call(this, message, type);
+                addLogEntry(message, type);
+            };
+
+            try {
+                updateProgress(10);
+                
+                // Step 1: Initial request
+                addLogEntry('=== STEP 1: Testing Initial POST Request ===', 'info');
+                const step1Result = await currentTester.testInitialRequest();
+                updateProgress(30);
+
+                if (!step1Result.success) {
+                    addLogEntry('Initial request failed, stopping test suite', 'error');
+                    setButtonState(false);
+                    return;
+                }
+
+                // Step 2: Status polling
+                addLogEntry('=== STEP 2: Testing Status Polling ===', 'info');
+                const step2Result = await currentTester.testStatusPolling();
+                updateProgress(60);
+
+                // Step 3: Workflow validation
+                addLogEntry('=== STEP 3: Validating Workflow Components ===', 'info');
+                const step3Result = await currentTester.validateWorkflowComponents();
+                updateProgress(75);
+
+                // Step 4: Response validation
+                addLogEntry('=== STEP 4: Validating Response Format ===', 'info');
+                const step4Result = await currentTester.validateResponseFormat(
+                    step1Result.responseData,
+                    step2Result.finalData
+                );
+                updateProgress(85);
+
+                // Step 5: Database validation
+                addLogEntry('=== STEP 5: Database Insertion Validation ===', 'info');
+                const step5Result = await currentTester.validateDatabaseInsertion();
+                updateProgress(95);
+
+                // Generate final report
+                const finalReport = currentTester.generateReport({
+                    startTime: new Date().toISOString(),
+                    endTime: new Date().toISOString(),
+                    tests: {
+                        initialRequest: step1Result,
+                        statusPolling: step2Result,
+                        workflowValidation: step3Result,
+                        responseValidation: step4Result,
+                        databaseValidation: step5Result
+                    }
+                });
+
+                testResults = finalReport;
+                displayResults(finalReport);
+                updateProgress(100);
+
+                addLogEntry('✅ Test suite completed successfully!', 'success');
+
+            } catch (error) {
+                addLogEntry(`💥 Test suite crashed: ${error.message}`, 'error');
+                updateProgress(0);
+            } finally {
+                setButtonState(false);
+                document.getElementById('exportResults').disabled = false;
+            }
+        }
+
+        function displayResults(report) {
+            const container = document.getElementById('resultsContainer');
+            const summary = document.getElementById('resultsSummary');
+            
+            let html = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                    <div style="text-align: center; padding: 15px; background: #f0f9ff; border-radius: 6px;">
+                        <div style="font-size: 24px; font-weight: bold; color: #0369a1;">${report.summary.passedTests}</div>
+                        <div style="color: #075985;">Tests Passed</div>
+                    </div>
+                    <div style="text-align: center; padding: 15px; background: #fef2f2; border-radius: 6px;">
+                        <div style="font-size: 24px; font-weight: bold; color: #dc2626;">${report.summary.failedTests}</div>
+                        <div style="color: #991b1b;">Tests Failed</div>
+                    </div>
+                    <div style="text-align: center; padding: 15px; background: #f9fafb; border-radius: 6px;">
+                        <div style="font-size: 24px; font-weight: bold; color: #374151;">${report.summary.totalTests}</div>
+                        <div style="color: #6b7280;">Total Tests</div>
+                    </div>
+                    <div style="text-align: center; padding: 15px; background: #f0fdf4; border-radius: 6px;">
+                        <div style="font-size: 24px; font-weight: bold; color: #16a34a;">${report.summary.duration || 0}ms</div>
+                        <div style="color: #15803d;">Duration</div>
+                    </div>
+                </div>
+
+                <h4>Test Details:</h4>
+                <ul style="list-style: none; padding: 0;">
+            `;
+
+            Object.entries(report.details).forEach(([testName, result]) => {
+                const status = result.success || result.allPassed ? 'pass' : 'fail';
+                const statusText = status === 'pass' ? 'PASS' : 'FAIL';
+                html += `
+                    <li style="margin-bottom: 10px; padding: 10px; background: ${status === 'pass' ? '#f0fdf4' : '#fef2f2'}; border-radius: 4px;">
+                        <strong>${testName}</strong>
+                        <span class="test-status status-${status}">${statusText}</span>
+                        ${result.error ? `<div style="color: #dc2626; font-size: 14px; margin-top: 5px;">Error: ${result.error}</div>` : ''}
+                    </li>
+                `;
+            });
+
+            html += '</ul>';
+
+            if (report.recommendations && report.recommendations.length > 0) {
+                html += '<h4>Recommendations:</h4><ul>';
+                report.recommendations.forEach(rec => {
+                    html += `<li style="margin-bottom: 5px; color: #d97706;">• ${rec}</li>`;
+                });
+                html += '</ul>';
+            }
+
+            summary.innerHTML = html;
+            container.style.display = 'block';
+        }
+
+        function exportResults() {
+            if (!testResults) {
+                addLogEntry('No test results to export', 'warning');
+                return;
+            }
+
+            const dataStr = JSON.stringify(testResults, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(dataBlob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `api-test-results-${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+            
+            URL.revokeObjectURL(url);
+            addLogEntry('Test results exported successfully', 'success');
+        }
+
+        // Initialize
+        addLogEntry('API Test Suite loaded and ready', 'success');
+        addLogEntry('Click "Run Full Test Suite" to begin testing', 'info');
+    </script>
+</body>
+</html>
