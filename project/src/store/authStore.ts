@@ -10,12 +10,14 @@ interface AuthState {
   profile: Profile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  error: string | null;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<void>;
   fetchProfile: () => Promise<void>;
   initialize: () => Promise<void>;
+  clearError: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -23,10 +25,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   profile: null,
   isAuthenticated: false,
   isLoading: true,
+  error: null,
+
+  clearError: () => set({ error: null }),
 
   initialize: async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      set({ isLoading: true, error: null });
+      
+      // Get current session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        console.error('Session error:', sessionError);
+        set({ error: sessionError.message });
+        return;
+      }
       
       if (session?.user) {
         set({ user: session.user, isAuthenticated: true });
@@ -34,14 +48,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     } catch (error) {
       console.error('Error initializing auth:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to initialize authentication' });
     } finally {
       set({ isLoading: false });
     }
 
     // Listen for auth changes
     supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session?.user?.id);
+      
       if (session?.user) {
-        set({ user: session.user, isAuthenticated: true });
+        set({ user: session.user, isAuthenticated: true, error: null });
         await get().fetchProfile();
       } else {
         set({ user: null, profile: null, isAuthenticated: false });
@@ -50,18 +67,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   login: async (email: string, password: string) => {
-    set({ isLoading: true });
     try {
+      set({ isLoading: true, error: null });
+      
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim(),
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        // Handle specific auth errors
+        if (error.message.includes('Invalid login credentials')) {
+          throw new Error('Invalid email or password. Please check your credentials and try again.');
+        } else if (error.message.includes('Email not confirmed')) {
+          throw new Error('Please check your email and click the confirmation link before signing in.');
+        } else if (error.message.includes('Too many requests')) {
+          throw new Error('Too many login attempts. Please wait a few minutes and try again.');
+        }
+        throw error;
+      }
 
-      set({ user: data.user, isAuthenticated: true });
-      await get().fetchProfile();
+      if (data.user) {
+        set({ user: data.user, isAuthenticated: true });
+        await get().fetchProfile();
+      }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Login failed';
+      set({ error: errorMessage });
       throw error;
     } finally {
       set({ isLoading: false });
@@ -69,30 +101,43 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signup: async (email: string, password: string, name: string) => {
-    set({ isLoading: true });
     try {
+      set({ isLoading: true, error: null });
+      
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: email.trim(),
         password,
         options: {
           data: {
-            full_name: name,
+            full_name: name.trim(),
           },
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Handle specific signup errors
+        if (error.message.includes('User already registered')) {
+          throw new Error('An account with this email already exists. Please try logging in instead.');
+        } else if (error.message.includes('Password should be at least')) {
+          throw new Error('Password must be at least 6 characters long.');
+        } else if (error.message.includes('Invalid email')) {
+          throw new Error('Please enter a valid email address.');
+        }
+        throw error;
+      }
 
       if (data.user) {
         set({ user: data.user, isAuthenticated: true });
         
-        // Wait a moment for the trigger to create the profile
+        // Wait for the trigger to create the profile
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         // Fetch the profile that should have been created by the trigger
         await get().fetchProfile();
       }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Signup failed';
+      set({ error: errorMessage });
       throw error;
     } finally {
       set({ isLoading: false });
@@ -101,12 +146,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     try {
+      set({ isLoading: true, error: null });
+      
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
       set({ user: null, profile: null, isAuthenticated: false });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Logout failed';
+      set({ error: errorMessage });
       throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
@@ -121,14 +172,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .eq('id', user.id)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching profile:', error);
+        set({ error: 'Failed to load user profile' });
+        return;
+      }
       
       if (data) {
-        set({ profile: data });
+        set({ profile: data, error: null });
       } else {
         // If no profile exists, the trigger might not have fired yet
-        // Wait a bit and try again
-        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log('No profile found, waiting for trigger...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
         const { data: retryData, error: retryError } = await supabase
           .from('profiles')
@@ -136,13 +191,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           .eq('id', user.id)
           .maybeSingle();
           
-        if (retryError) throw retryError;
+        if (retryError) {
+          console.error('Error fetching profile on retry:', retryError);
+          set({ error: 'Failed to load user profile' });
+          return;
+        }
+        
         if (retryData) {
-          set({ profile: retryData });
+          set({ profile: retryData, error: null });
+        } else {
+          set({ error: 'Profile not found. Please contact support.' });
         }
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
+      set({ error: 'Failed to load user profile' });
     }
   },
 
@@ -159,8 +222,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .single();
 
       if (error) throw error;
-      set({ profile: data });
+      set({ profile: data, error: null });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update profile';
+      set({ error: errorMessage });
       throw error;
     }
   },

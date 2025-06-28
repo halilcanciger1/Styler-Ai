@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { supabase, uploadFile, STORAGE_BUCKETS, subscribeToGenerations } from '../lib/supabase';
+import { supabase, uploadFile, STORAGE_BUCKETS } from '../lib/supabase';
 import { Database } from '../types/database';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 type Generation = Database['public']['Tables']['generations']['Row'];
 type GenerationInsert = Database['public']['Tables']['generations']['Insert'];
@@ -10,7 +11,7 @@ interface GenerationState {
   currentRequest: Partial<GenerationInsert> | null;
   isGenerating: boolean;
   generationProgress: number;
-  realtimeSubscription: any;
+  realtimeChannel: RealtimeChannel | null;
   setCurrentRequest: (request: Partial<GenerationInsert>) => void;
   generateImage: () => Promise<void>;
   fetchGenerations: () => Promise<void>;
@@ -26,7 +27,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
   currentRequest: null,
   isGenerating: false,
   generationProgress: 0,
-  realtimeSubscription: null,
+  realtimeChannel: null,
 
   setCurrentRequest: (request: Partial<GenerationInsert>) => {
     set({ currentRequest: request });
@@ -154,43 +155,67 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
   },
 
   subscribeToRealtime: (userId: string) => {
-    const subscription = subscribeToGenerations(userId, (payload) => {
-      const { eventType, new: newRecord, old: oldRecord } = payload;
+    const { realtimeChannel } = get();
+    
+    // If there's already a channel, unsubscribe first
+    if (realtimeChannel) {
+      realtimeChannel.unsubscribe();
+    }
 
-      set(state => {
-        let updatedGenerations = [...state.generations];
+    // Create a new channel instance
+    const channel = supabase.channel(`generations-${userId}`);
+    
+    // Set up the channel listener
+    channel.on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'generations',
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload: any) => {
+        const { eventType, new: newRecord, old: oldRecord } = payload;
 
-        switch (eventType) {
-          case 'INSERT':
-            // Only add if not already in the list
-            if (!updatedGenerations.find(g => g.id === newRecord.id)) {
-              updatedGenerations = [newRecord, ...updatedGenerations];
-            }
-            break;
-          case 'UPDATE':
-            updatedGenerations = updatedGenerations.map(gen =>
-              gen.id === newRecord.id ? newRecord : gen
-            );
-            break;
-          case 'DELETE':
-            updatedGenerations = updatedGenerations.filter(gen =>
-              gen.id !== oldRecord.id
-            );
-            break;
-        }
+        set(state => {
+          let updatedGenerations = [...state.generations];
 
-        return { generations: updatedGenerations };
-      });
-    });
+          switch (eventType) {
+            case 'INSERT':
+              // Only add if not already in the list
+              if (!updatedGenerations.find(g => g.id === newRecord.id)) {
+                updatedGenerations = [newRecord, ...updatedGenerations];
+              }
+              break;
+            case 'UPDATE':
+              updatedGenerations = updatedGenerations.map(gen =>
+                gen.id === newRecord.id ? newRecord : gen
+              );
+              break;
+            case 'DELETE':
+              updatedGenerations = updatedGenerations.filter(gen =>
+                gen.id !== oldRecord.id
+              );
+              break;
+          }
 
-    set({ realtimeSubscription: subscription });
+          return { generations: updatedGenerations };
+        });
+      }
+    );
+
+    // Subscribe to the channel
+    channel.subscribe();
+
+    // Store the channel instance
+    set({ realtimeChannel: channel });
   },
 
   unsubscribeFromRealtime: () => {
-    const { realtimeSubscription } = get();
-    if (realtimeSubscription) {
-      realtimeSubscription.unsubscribe();
-      set({ realtimeSubscription: null });
+    const { realtimeChannel } = get();
+    if (realtimeChannel) {
+      realtimeChannel.unsubscribe();
+      set({ realtimeChannel: null });
     }
   },
 }));

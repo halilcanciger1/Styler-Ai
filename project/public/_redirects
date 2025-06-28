@@ -1,0 +1,15 @@
+# Handle client-side routing
+/*    /index.html   200
+
+# API redirects (if needed)
+/api/*  https://api.fashn.ai/v1/:splat  200
+
+# Handle specific routes
+/dashboard  /index.html  200
+/studio     /index.html  200
+/gallery    /index.html  200
+/subscription /index.html  200
+/api        /index.html  200
+/settings   /index.html  200
+/login      /index.html  200
+/signup     /index.html  200
