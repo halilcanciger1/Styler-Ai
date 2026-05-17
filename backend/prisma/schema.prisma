@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String         @id @default(uuid())
+  email            String         @unique
+  password         String
+  fullName         String?
+  avatarUrl        String?
+  credits          Int            @default(0)
+  subscriptionTier String         @default("free")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  generations      Generation[]
+  apiKeys          ApiKey[]
+  subscriptions    Subscription[]
+}
+
+model Generation {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  modelImageUrl   String
+  garmentImageUrl String
+  resultUrls      String[]
+  category        String
+  seed            Int?
+  samples         Int      @default(1)
+  quality         String   @default("standard")
+  status          String   @default("processing")
+  processingTime  Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ApiKey {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  keyHash    String
+  keyPrefix  String
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  isActive   Boolean   @default(true)
+}
+
+model Subscription {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId             String
+  status             String
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
